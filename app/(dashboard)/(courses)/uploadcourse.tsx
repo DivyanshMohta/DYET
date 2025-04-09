@@ -38,14 +38,19 @@ interface FileWithPreview extends File {
   preview?: string;
 }
 
-interface Subject {
-  name: string;
+interface Unit {
+  unitNumber: number;
   notesFile?: FileWithPreview;
   fileSize?: string;
   fileType?: string;
   uploadProgress?: number;
   uploadStatus?: "idle" | "uploading" | "success" | "error";
   errorMessage?: string;
+}
+
+interface Subject {
+  name: string;
+  units: Unit[];
 }
 
 const engineeringYears = [
@@ -71,48 +76,66 @@ export default function UploadPage() {
   const [selectedYear, setSelectedYear] = useState<string>("");
   const [selectedBranch, setSelectedBranch] = useState<string>("");
   const [subjects, setSubjects] = useState<Subject[]>([
-    { name: "", notesFile: undefined, uploadStatus: "idle", uploadProgress: 0 },
+    {
+      name: "",
+      units: [{ unitNumber: 1, uploadStatus: "idle", uploadProgress: 0 }],
+    },
   ]);
   const [overallProgress, setOverallProgress] = useState<number>(0);
   const [recentUploads, setRecentUploads] = useState<
-    { course: string; subject: string; url: string }[]
+    { course: string; subject: string; unit: number; url: string }[]
   >([]);
 
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  // Load recent uploads from localStorage on component mount
   useEffect(() => {
     const savedUploads = localStorage.getItem("recentUploads");
     if (savedUploads) {
       try {
-        setRecentUploads(JSON.parse(savedUploads).slice(0, 3)); // Show only latest 3
+        setRecentUploads(JSON.parse(savedUploads).slice(0, 3));
       } catch (e) {
         console.error("Failed to parse recent uploads", e);
       }
     }
   }, []);
 
-  // Add a new subject to the list
   const addSubject = () => {
     setSubjects([
       ...subjects,
       {
         name: "",
-        notesFile: undefined,
-        uploadStatus: "idle",
-        uploadProgress: 0,
+        units: [{ unitNumber: 1, uploadStatus: "idle", uploadProgress: 0 }],
       },
     ]);
   };
 
-  // Remove a subject from the list
   const removeSubject = (index: number) => {
     if (subjects.length > 1) {
       setSubjects(subjects.filter((_, i) => i !== index));
     }
   };
 
-  // Update a subject's properties
+  const addUnit = (subjectIndex: number) => {
+    const updatedSubjects = [...subjects];
+    const nextUnitNumber = updatedSubjects[subjectIndex].units.length + 1;
+    updatedSubjects[subjectIndex].units.push({
+      unitNumber: nextUnitNumber,
+      uploadStatus: "idle",
+      uploadProgress: 0,
+    });
+    setSubjects(updatedSubjects);
+  };
+
+  const removeUnit = (subjectIndex: number, unitIndex: number) => {
+    const updatedSubjects = [...subjects];
+    if (updatedSubjects[subjectIndex].units.length > 1) {
+      updatedSubjects[subjectIndex].units = updatedSubjects[
+        subjectIndex
+      ].units.filter((_, i) => i !== unitIndex);
+      setSubjects(updatedSubjects);
+    }
+  };
+
   const updateSubject = (
     index: number,
     field: keyof Subject,
@@ -123,7 +146,20 @@ export default function UploadPage() {
     setSubjects(updatedSubjects);
   };
 
-  // Format file size to a human-readable string
+  const updateUnit = (
+    subjectIndex: number,
+    unitIndex: number,
+    field: keyof Unit,
+    value: any
+  ) => {
+    const updatedSubjects = [...subjects];
+    updatedSubjects[subjectIndex].units[unitIndex] = {
+      ...updatedSubjects[subjectIndex].units[unitIndex],
+      [field]: value,
+    };
+    setSubjects(updatedSubjects);
+  };
+
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return "0 Bytes";
     const k = 1024;
@@ -132,15 +168,14 @@ export default function UploadPage() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
 
-  // Handle file selection
   const handleFileChange =
-    (subjectIndex: number) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    (subjectIndex: number, unitIndex: number) =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
       if (!e.target.files || e.target.files.length === 0) return;
 
       const file = e.target.files[0] as FileWithPreview;
       const fileExtension = `.${file.name.split(".").pop()?.toLowerCase()}`;
 
-      // Validate file type
       if (!acceptedFileTypes.includes(fileExtension)) {
         toast.error(
           `Invalid file type. Accepted types: ${acceptedFileTypes.join(", ")}`
@@ -148,54 +183,63 @@ export default function UploadPage() {
         return;
       }
 
-      // Validate file size (max 10MB)
       if (file.size > 10 * 1024 * 1024) {
         toast.error("File size exceeds 10MB limit");
         return;
       }
 
-      const updatedSubjects = [...subjects];
-      updatedSubjects[subjectIndex] = {
-        ...updatedSubjects[subjectIndex],
-        notesFile: file,
-        fileSize: formatFileSize(file.size),
-        fileType: fileExtension.slice(1).toUpperCase(),
-        uploadStatus: "idle",
-        uploadProgress: 0,
-      };
-      setSubjects(updatedSubjects);
+      updateUnit(subjectIndex, unitIndex, "notesFile", file);
+      updateUnit(
+        subjectIndex,
+        unitIndex,
+        "fileSize",
+        formatFileSize(file.size)
+      );
+      updateUnit(
+        subjectIndex,
+        unitIndex,
+        "fileType",
+        fileExtension.slice(1).toUpperCase()
+      );
+      updateUnit(subjectIndex, unitIndex, "uploadStatus", "idle");
+      updateUnit(subjectIndex, unitIndex, "uploadProgress", 0);
     };
 
-  // Update the upload progress for a specific subject
-  const updateUploadProgress = (index: number, progress: number) => {
-    setSubjects((prev) => {
-      const updated = [...prev];
-      updated[index] = {
-        ...updated[index],
-        uploadProgress: progress,
-        uploadStatus: progress === 100 ? "success" : "uploading",
-      };
-      return updated;
-    });
+  const updateUploadProgress = (
+    subjectIndex: number,
+    unitIndex: number,
+    progress: number
+  ) => {
+    updateUnit(subjectIndex, unitIndex, "uploadProgress", progress);
+    updateUnit(
+      subjectIndex,
+      unitIndex,
+      "uploadStatus",
+      progress === 100 ? "success" : "uploading"
+    );
 
-    // Update overall progress
-    const total = subjects.length;
-    const progressSum = subjects.reduce((sum, s, i) => {
-      return sum + (i === index ? progress : s.uploadProgress || 0);
+    const totalUnits = subjects.reduce((sum, s) => sum + s.units.length, 0);
+    const progressSum = subjects.reduce((sum, s) => {
+      return (
+        sum +
+        s.units.reduce((unitSum, u) => unitSum + (u.uploadProgress || 0), 0)
+      );
     }, 0);
-
-    setOverallProgress(progressSum / total);
+    setOverallProgress(progressSum / totalUnits);
   };
 
-  // Save a recent upload to localStorage
-  const saveRecentUpload = (course: string, subject: string, url: string) => {
-    const newUpload = { course, subject, url };
+  const saveRecentUpload = (
+    course: string,
+    subject: string,
+    unit: number,
+    url: string
+  ) => {
+    const newUpload = { course, subject, unit, url };
     const updatedUploads = [newUpload, ...recentUploads].slice(0, 3);
     setRecentUploads(updatedUploads);
     localStorage.setItem("recentUploads", JSON.stringify(updatedUploads));
   };
 
-  // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -205,10 +249,11 @@ export default function UploadPage() {
     }
 
     const validSubjects = subjects.filter(
-      (subject) => subject.name.trim() && subject.notesFile
+      (subject) =>
+        subject.name.trim() && subject.units.some((unit) => unit.notesFile)
     );
     if (validSubjects.length === 0) {
-      toast.error("Please add at least one subject with a name and notes file");
+      toast.error("Please add at least one subject with a unit and notes file");
       return;
     }
 
@@ -220,39 +265,32 @@ export default function UploadPage() {
       formData.append("year", selectedYear);
       formData.append("branch", selectedBranch);
 
-      // We need to prepare a simplified version of subjects without the File objects
-      // as they can't be stringified directly
-      const subjectsToSave = subjects
-        .filter((subject) => subject.name.trim() && subject.notesFile)
-        .map((subject) => ({
-          name: subject.name.trim(),
-        }));
-
+      const subjectsToSave = validSubjects.map((subject) => ({
+        name: subject.name.trim(),
+        units: subject.units
+          .filter((unit) => unit.notesFile)
+          .map((unit) => ({
+            unitNumber: unit.unitNumber,
+          })),
+      }));
       formData.append("subjects", JSON.stringify(subjectsToSave));
 
-      // Add files to form data
       subjects.forEach((subject, subjectIndex) => {
-        if (subject.name.trim() && subject.notesFile) {
-          formData.append(
-            `notes-file-${subjectIndex}`,
-            subject.notesFile,
-            subject.notesFile.name
-          );
-
-          // Mark this subject as uploading
-          const updatedSubjects = [...subjects];
-          updatedSubjects[subjectIndex] = {
-            ...updatedSubjects[subjectIndex],
-            uploadStatus: "uploading",
-          };
-          setSubjects(updatedSubjects);
-        }
+        subject.units.forEach((unit, unitIndex) => {
+          if (unit.notesFile) {
+            formData.append(
+              `notes-file-${subjectIndex}-${unitIndex}`,
+              unit.notesFile,
+              unit.notesFile.name
+            );
+            updateUnit(subjectIndex, unitIndex, "uploadStatus", "uploading");
+          }
+        });
       });
 
       toast.dismiss(toastId);
       toast.loading("Uploading files to Cloudinary...");
 
-      // Use the fetch with a custom header to track upload progress
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "/api/course", true);
 
@@ -261,38 +299,44 @@ export default function UploadPage() {
           const percentComplete = (event.loaded / event.total) * 100;
           setOverallProgress(percentComplete);
 
-          // For simplicity, update all valid subjects with the same progress
-          subjects.forEach((subject, idx) => {
-            if (subject.name.trim() && subject.notesFile) {
-              updateUploadProgress(idx, percentComplete);
-            }
+          subjects.forEach((subject, sIdx) => {
+            subject.units.forEach((unit, uIdx) => {
+              if (unit.notesFile) {
+                updateUploadProgress(sIdx, uIdx, percentComplete);
+              }
+            });
           });
         }
       };
 
       xhr.onload = function () {
-        if (xhr.status === 201) {
+        if (xhr.status === 201 || xhr.status === 200) {
           const response = JSON.parse(xhr.responseText);
 
           toast.success("Notes uploaded successfully!");
 
-          // Save upload information for recent uploads display
           if (response.course && response.course.subjects) {
             response.course.subjects.forEach((subj: any) => {
-              const courseName = `${selectedYear} - ${selectedBranch}`;
-              saveRecentUpload(courseName, subj.name, subj.notesFileUrl);
+              subj.units.forEach((unit: any) => {
+                const courseName = `${selectedYear} - ${selectedBranch}`;
+                saveRecentUpload(
+                  courseName,
+                  subj.name,
+                  unit.unitNumber,
+                  unit.notesFileUrl
+                );
+              });
             });
           }
 
-          // Reset form
           setSelectedYear("");
           setSelectedBranch("");
           setSubjects([
             {
               name: "",
-              notesFile: undefined,
-              uploadStatus: "idle",
-              uploadProgress: 0,
+              units: [
+                { unitNumber: 1, uploadStatus: "idle", uploadProgress: 0 },
+              ],
             },
           ]);
           setOverallProgress(0);
@@ -306,13 +350,15 @@ export default function UploadPage() {
         toast.error("Failed to upload notes. Please try again.");
         setIsLoading(false);
 
-        // Mark all uploading subjects as failed
         setSubjects((prev) =>
-          prev.map((s) =>
-            s.uploadStatus === "uploading"
-              ? { ...s, uploadStatus: "error", errorMessage: "Upload failed" }
-              : s
-          )
+          prev.map((s) => ({
+            ...s,
+            units: s.units.map((u) =>
+              u.uploadStatus === "uploading"
+                ? { ...u, uploadStatus: "error", errorMessage: "Upload failed" }
+                : u
+            ),
+          }))
         );
       };
 
@@ -325,7 +371,6 @@ export default function UploadPage() {
     }
   };
 
-  // Trigger the hidden file input
   const triggerFileInput = (inputId: string) => {
     if (fileInputRefs.current[inputId]) {
       fileInputRefs.current[inputId]?.click();
@@ -391,9 +436,9 @@ export default function UploadPage() {
           <Card
             key={subjectIndex}
             className={`transition-all duration-200 ${
-              subject.uploadStatus === "success"
+              subject.units.every((u) => u.uploadStatus === "success")
                 ? "border-green-500 bg-green-50"
-                : subject.uploadStatus === "error"
+                : subject.units.some((u) => u.uploadStatus === "error")
                 ? "border-red-500 bg-red-50"
                 : ""
             }`}
@@ -412,15 +457,11 @@ export default function UploadPage() {
                         updateSubject(subjectIndex, "name", e.target.value)
                       }
                       placeholder="Enter subject name"
-                      className={
-                        subject.uploadStatus === "success"
-                          ? "border-green-500"
-                          : ""
-                      }
-                      disabled={
-                        subject.uploadStatus === "success" ||
-                        subject.uploadStatus === "uploading"
-                      }
+                      disabled={subject.units.some(
+                        (u) =>
+                          u.uploadStatus === "success" ||
+                          u.uploadStatus === "uploading"
+                      )}
                     />
                   </div>
                   {subjects.length > 1 && (
@@ -429,109 +470,120 @@ export default function UploadPage() {
                       variant="destructive"
                       size="icon"
                       onClick={() => removeSubject(subjectIndex)}
-                      disabled={subject.uploadStatus === "uploading"}
+                      disabled={subject.units.some(
+                        (u) => u.uploadStatus === "uploading"
+                      )}
                     >
                       <Minus className="h-4 w-4" />
                     </Button>
                   )}
                 </div>
 
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <Label>Notes File</Label>
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-auto p-1"
-                          >
-                            <Info className="h-4 w-4 text-muted-foreground" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Accepted file types: PDF, DOC, DOCX, PPT, PPTX</p>
-                          <p>Maximum file size: 10MB</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                  <div className="flex space-x-2 items-center">
-                    <input
-                      type="file"
-                      id={`notes-file-${subjectIndex}`}
-                      className="hidden"
-                      accept=".pdf,.doc,.docx,.ppt,.pptx"
-                      onChange={handleFileChange(subjectIndex)}
-                      ref={(el) =>
-                        (fileInputRefs.current[`notes-file-${subjectIndex}`] =
-                          el)
-                      }
-                      disabled={
-                        subject.uploadStatus === "uploading" ||
-                        subject.uploadStatus === "success"
-                      }
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() =>
-                        triggerFileInput(`notes-file-${subjectIndex}`)
-                      }
-                      disabled={
-                        subject.uploadStatus === "uploading" ||
-                        subject.uploadStatus === "success"
-                      }
-                      className={subject.notesFile ? "bg-blue-50" : ""}
-                    >
-                      <FileText className="h-4 w-4 mr-2" />
-                      {subject.notesFile ? "Change File" : "Upload File"}
-                    </Button>
-
-                    {subject.uploadStatus === "success" && (
-                      <span className="text-green-500 flex items-center">
-                        <CheckCircle className="h-4 w-4 mr-1" />
-                        Uploaded
-                      </span>
-                    )}
-
-                    {subject.uploadStatus === "error" && (
-                      <span className="text-red-500 flex items-center">
-                        <AlertTriangle className="h-4 w-4 mr-1" />
-                        {subject.errorMessage || "Failed"}
-                      </span>
-                    )}
-                  </div>
-
-                  {subject.notesFile && (
-                    <div className="bg-slate-50 p-3 rounded-md">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-                          <File className="h-4 w-4 mr-2 text-blue-500" />
-                          <span className="text-sm font-medium truncate max-w-[250px]">
-                            {subject.notesFile.name}
-                          </span>
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {subject.fileSize} | {subject.fileType}
-                        </div>
-                      </div>
-
-                      {subject.uploadStatus === "uploading" && (
-                        <div className="mt-2">
-                          <Progress
-                            value={subject.uploadProgress}
-                            className="h-2"
-                          />
-                          <div className="text-xs text-right mt-1">
-                            {Math.round(subject.uploadProgress || 0)}%
-                          </div>
-                        </div>
+                {subject.units.map((unit, unitIndex) => (
+                  <div key={unitIndex} className="space-y-2 border-t pt-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Unit {unit.unitNumber} Notes</Label>
+                      {subject.units.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => removeUnit(subjectIndex, unitIndex)}
+                          disabled={unit.uploadStatus === "uploading"}
+                        >
+                          <Minus className="h-4 w-4" />
+                        </Button>
                       )}
                     </div>
-                  )}
-                </div>
+                    <div className="flex space-x-2 items-center">
+                      <input
+                        type="file"
+                        id={`notes-file-${subjectIndex}-${unitIndex}`}
+                        className="hidden"
+                        accept=".pdf,.doc,.docx,.ppt,.pptx"
+                        onChange={handleFileChange(subjectIndex, unitIndex)}
+                        ref={(el) =>
+                          (fileInputRefs.current[
+                            `notes-file-${subjectIndex}-${unitIndex}`
+                          ] = el)
+                        }
+                        disabled={
+                          unit.uploadStatus === "uploading" ||
+                          unit.uploadStatus === "success"
+                        }
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() =>
+                          triggerFileInput(
+                            `notes-file-${subjectIndex}-${unitIndex}`
+                          )
+                        }
+                        disabled={
+                          unit.uploadStatus === "uploading" ||
+                          unit.uploadStatus === "success"
+                        }
+                        className={unit.notesFile ? "bg-blue-50" : ""}
+                      >
+                        <FileText className="h-4 w-4 mr-2" />
+                        {unit.notesFile ? "Change File" : "Upload File"}
+                      </Button>
+
+                      {unit.uploadStatus === "success" && (
+                        <span className="text-green-500 flex items-center">
+                          <CheckCircle className="h-4 w-4 mr-1" />
+                          Uploaded
+                        </span>
+                      )}
+
+                      {unit.uploadStatus === "error" && (
+                        <span className="text-red-500 flex items-center">
+                          <AlertTriangle className="h-4 w-4 mr-1" />
+                          {unit.errorMessage || "Failed"}
+                        </span>
+                      )}
+                    </div>
+
+                    {unit.notesFile && (
+                      <div className="bg-slate-50 p-3 rounded-md">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <File className="h-4 w-4 mr-2 text-blue-500" />
+                            <span className="text-sm font-medium truncate max-w-[250px]">
+                              {unit.notesFile.name}
+                            </span>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {unit.fileSize} | {unit.fileType}
+                          </div>
+                        </div>
+
+                        {unit.uploadStatus === "uploading" && (
+                          <div className="mt-2">
+                            <Progress
+                              value={unit.uploadProgress}
+                              className="h-2"
+                            />
+                            <div className="text-xs text-right mt-1">
+                              {Math.round(unit.uploadProgress || 0)}%
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => addUnit(subjectIndex)}
+                  disabled={isLoading}
+                >
+                  <Plus className="h-4 w-4 mr-2" /> Add Unit
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -551,7 +603,10 @@ export default function UploadPage() {
           <Button
             type="submit"
             className="w-full bg-blue-500 hover:bg-blue-600"
-            disabled={isLoading || !subjects.some((s) => s.name && s.notesFile)}
+            disabled={
+              isLoading ||
+              !subjects.some((s) => s.name && s.units.some((u) => u.notesFile))
+            }
           >
             {isLoading ? (
               <>
@@ -589,7 +644,9 @@ export default function UploadPage() {
                     className="flex justify-between items-center p-3 bg-slate-50 rounded-md"
                   >
                     <div>
-                      <p className="font-medium">{upload.subject}</p>
+                      <p className="font-medium">
+                        {upload.subject} - Unit {upload.unit}
+                      </p>
                       <p className="text-sm text-muted-foreground">
                         {upload.course}
                       </p>
